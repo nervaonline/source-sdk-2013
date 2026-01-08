@@ -505,3 +505,4 @@ FodyWeavers.xsd
 
 .ccache/
 .podman/
+.vscode/
