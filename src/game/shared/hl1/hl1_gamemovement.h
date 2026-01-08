@@ -34,7 +34,6 @@ public:
 	virtual void Duck( void );
 	virtual void HandleDuckingSpeedCrop();
 	virtual void CheckParameters( void );
-	virtual bool CanAccelerate( void );
 
 protected:
 	CHL1_Player *m_pHL1Player;
