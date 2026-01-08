@@ -34,14 +34,13 @@ public:
     virtual void Event_Killed( const CTakeDamageInfo &info );
     virtual void Spawn( void );
     virtual void PostThink( void );
-	virtual void PlayerDeathThink(void);
+	virtual void FireBullets( const FireBulletsInfo_t &info );
     virtual void SetAnimation( PLAYER_ANIM playerAnim );
     void GiveDefaultItems( void );
     void CreateRagdollEntity( void );
     void UpdateOnRemove( void );
     virtual bool BecomeRagdollOnClient( const Vector &force ) { return true; };
     virtual void CreateCorpse( void );
-	virtual void FireBullets(const FireBulletsInfo_t &info);
 
 	virtual bool BumpWeapon( CBaseCombatWeapon *pWeapon );
 
@@ -56,11 +55,14 @@ public:
 
 	void DoAnimationEvent( PlayerAnimEvent_t event, int nData = 0 );
 
-	virtual bool StartObserverMode(int mode);
-	virtual bool ClientCommand(const CCommand &args);
+	virtual bool StartObserverMode (int mode) 
+	{
+		if ( !IsHLTV() )
+			return false;	
+		return BaseClass::StartObserverMode( mode );	
+	}
 
 	void DetonateSatchelCharges( void );
-	void DetonateTripmines( void );
 
 	CNetworkVar( int, m_iRealSequence );
 

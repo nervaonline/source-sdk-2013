@@ -9,8 +9,7 @@
 #include "hl1mp_player.h"
 #include "client.h"
 #include "team.h"
-#include "../ilagcompensationmanager.h"
-#include "../player.h"
+#include "ilagcompensationmanager.h"
 
 class CTEPlayerAnimEvent : public CBaseTempEntity
 {
@@ -106,7 +105,9 @@ CHL1MP_Player::CHL1MP_Player()
 	m_flNextModelChangeTime = 0;
 	m_flNextTeamChangeTime = 0;
 
-	//BaseClass::ChangeTeam( 0 );
+//	SetViewOffset( TFC_PLAYER_VIEW_OFFSET );
+
+//	SetContextThink( &CTFCPlayer::TFCPlayerThink, gpGlobals->curtime, "TFCPlayerThink" );
 }
 
 CHL1MP_Player::~CHL1MP_Player()
@@ -126,14 +127,6 @@ void CHL1MP_Player::PostThink( void )
 	m_angEyeAngles = EyeAngles();
 
     m_PlayerAnimState->Update( m_angEyeAngles[YAW], m_angEyeAngles[PITCH] );
-}
-
-void CHL1MP_Player::PlayerDeathThink()
-{
-	if (!IsObserver())
-	{
-		BaseClass::PlayerDeathThink();
-	}
 }
 
 void CHL1MP_Player::Spawn( void )
@@ -161,7 +154,6 @@ void CHL1MP_Player::Spawn( void )
 	}
 
 	m_bHasLongJump = false;
-	m_Local.m_iHideHUD = 0;
 
 	m_iSpawnInterpCounter = (m_iSpawnInterpCounter + 1) % 8;
 }
@@ -172,77 +164,12 @@ void CHL1MP_Player::DoAnimationEvent( PlayerAnimEvent_t event, int nData )
 	TE_PlayerAnimEvent( this, event, nData );	// Send to any clients who can see this guy.
 }
 
-bool CHL1MP_Player::ClientCommand(const CCommand &args)
-{
-	const char *cmd = args[0];
-
-	if (stricmp(cmd, "spectate") == 0) // join spectator team & start observer mode
-	{
-		if (GetTeamNumber() == TEAM_SPECTATOR)
-			return true;
-
-		ConVarRef mp_allowspectators("mp_allowspectators");
-		if (mp_allowspectators.IsValid())
-		{
-			if ((mp_allowspectators.GetBool() == false) && !IsHLTV() && !IsReplay())
-			{
-				ClientPrint(this, HUD_PRINTCENTER, "#Cannot_Be_Spectator");
-				return true;
-			}
-		}
-
-		if (!IsDead())
-		{
-			CommitSuicide();	// kill player
-		}
-
-		RemoveAllItems(true);
-		CHL1MP_Player::ChangeTeam(TEAM_SPECTATOR);
-
-		return true;
-	}
-	else if (FStrEq(args[0], "jointeam"))
-	{
-		if (args.ArgC() < 2)
-		{
-			Warning("Player sent bad jointeam syntax\n");
-		}
-		int iTeam = atoi(args[1]);
-
-		if (!GetGlobalTeam(iTeam))//|| team == 0)
-		{
-			Warning("JoinTeam( %d ) - invalid team index.\n", iTeam);
-			return true;
-		}
-
-		CHL1MP_Player::ChangeTeam(iTeam);
-
-		return true;
-	}
-
-	return BaseClass::ClientCommand(args);
-}
-
-bool CHL1MP_Player::StartObserverMode(int mode)
-{
-	VPhysicsDestroyObject();
-	return BaseClass::StartObserverMode(mode);
-}
-
 void CHL1MP_Player::GiveDefaultItems( void )
 {
     GiveNamedItem( "weapon_crowbar" );
     GiveNamedItem( "weapon_glock" );
-	//GiveNamedItem("weapon_mp5");
-	//GiveNamedItem("weapon_357");
-	//GiveNamedItem("weapon_shotgun");
-	//GiveNamedItem("weapon_crossbow");
-	 // Deze als laatste zodat die auto geequipped wordt
-
-	//GiveNamedItem("item_longjump");
 
     CBasePlayer::GiveAmmo( 68, "9mmRound" );
-	//CBasePlayer::GiveAmmo( 68, "9mmRound");
 }
 
 void CHL1MP_Player::UpdateOnRemove( void )
@@ -265,15 +192,9 @@ void CHL1MP_Player::DetonateSatchelCharges( void )
 	{
 		if ( pSatchel->GetOwnerEntity() == this )
 		{
-			UTIL_Remove( pSatchel );
-			/* pSatchel->Use( this, this, USE_ON, 0 ); */ 
+			pSatchel->Use( this, this, USE_ON, 0 );
 		}
 	}
-}
-
-void CHL1MP_Player::DetonateTripmines(void)
-{
-	// todo
 }
 
 void CHL1MP_Player::Event_Killed( const CTakeDamageInfo &info )
@@ -284,11 +205,10 @@ void CHL1MP_Player::Event_Killed( const CTakeDamageInfo &info )
     
 	// Note: since we're dead, it won't draw us on the client, but we don't set EF_NODRAW
 	// because we still want to transmit to the clients in our PVS.
-	if ( !IsObserver() )
+	if ( !IsHLTV() )
 		CreateRagdollEntity();
 
 	DetonateSatchelCharges();
-	DetonateTripmines();
 
 	BaseClass::Event_Killed( info );
 
@@ -476,6 +396,15 @@ void CHL1MP_Player::SetAnimation( PLAYER_ANIM playerAnim )
 	SetCycle( 0 );
 }
 
+void CHL1MP_Player::FireBullets(const FireBulletsInfo_t &info)
+{
+    lagcompensation->StartLagCompensation(this, this->GetCurrentCommand());
+
+    BaseClass::FireBullets(info);
+    
+    lagcompensation->FinishLagCompensation(this);
+}
+
 static ConVar sv_debugweaponpickup( "sv_debugweaponpickup", "0", FCVAR_CHEAT, "Prints descriptive reasons as to why pickup did not work." );
 
 // correct respawning of weapons
@@ -568,25 +497,7 @@ void CHL1MP_Player::ChangeTeam( int iTeamNum )
 		}
 	}
 
-	if (IsObserver() && iTeamNum != TEAM_SPECTATOR) // exiting spectator
-	{
-		StopObserverMode();
-		Spawn();
-
-		return;
-	}
-
-	if (iTeamNum == TEAM_SPECTATOR)
-	{
-		StartObserverMode(OBS_MODE_ROAMING);
-	}
-
 	BaseClass::ChangeTeam( iTeamNum );
-
-	if (FlashlightIsOn())
-	{
-		FlashlightTurnOff();
-	}
 
 	m_flNextTeamChangeTime = gpGlobals->curtime + 5;
 
@@ -599,7 +510,7 @@ void CHL1MP_Player::ChangeTeam( int iTeamNum )
 		SetPlayerModel();
 	}
 
-	if ( bKill == true && !IsObserver() )
+	if ( bKill == true )
 	{
 		CommitSuicide();
 	}
@@ -731,19 +642,5 @@ void CHL1MP_Player::CreateRagdollEntity( void )
 void CHL1MP_Player::CreateCorpse( void )
 {
 
-}
-
-
-void CHL1MP_Player::FireBullets(const FireBulletsInfo_t &info)
-{
-	// Move other players back to history positions based on local player's lag
-	lagcompensation->StartLagCompensation(this, this->GetCurrentCommand());
-
-	BaseClass::FireBullets(info);
-
-	// Move other players back to history positions based on local player's lag
-	lagcompensation->FinishLagCompensation(this);
-
-	//Msg("Lagcomped weapon fired!!!!");
 }
 
